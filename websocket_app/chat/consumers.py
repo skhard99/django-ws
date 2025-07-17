@@ -1,10 +1,14 @@
 from channels.generic.websocket import AsyncWebsocketConsumer
 import json
 import uuid
+import time
 from chat.connection_pool import active_connections
 from chat.session_store import TTLSessionStore
 import logging
-from chat.metrics import inc, set_value
+from chat.metrics import (
+    inc_connections, set_active_connections, inc_messages, 
+    record_message_processing_time
+)
 
 session_store = TTLSessionStore()
 
@@ -13,6 +17,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         self.count = 0
         self.active = 0
         self.closed = False
+        
         # Get WebSocket key from scope headers
         headers = dict(self.scope["headers"])
         session_id = headers.get(b'x-session-id')  # header keys are lowercase and bytes
@@ -30,36 +35,58 @@ class ChatConsumer(AsyncWebsocketConsumer):
         }))
 
         active_connections.add(self)
+        
+        # Update Prometheus metrics
+        inc_connections()
+        set_active_connections(len(active_connections))
+        
         logging.info("Client connected", extra={
             "session_id": self.session_id,
             "resumed": bool(saved),
-            "count": self.count
+            "count": self.count,
+            "total_active": len(active_connections)
         })
-        inc("total_connections")
-        set_value("connected_users", len(active_connections))
 
     async def receive(self, text_data):
-        if text_data == "exit":
-            await self.send(text_data=json.dumps({"bye": True, "total": self.count}))
-            await self.close(code=1001)
-            return
-        self.active += 1
-        inc("total_messages")
+        # Record message processing time
+        start_time = time.time()
+        
         try:
-
+            if text_data == "exit":
+                await self.send(text_data=json.dumps({"bye": True, "total": self.count}))
+                await self.close(code=1001)
+                return
+            
+            self.active += 1
             self.count += 1
+            
+            # Update Prometheus metrics
+            inc_messages()
+            
             await self.send(text_data=json.dumps({"count": self.count}))
+            
         finally:
             self.active -= 1
+            
+            # Record processing time
+            processing_time = time.time() - start_time
+            record_message_processing_time(processing_time)
 
     async def disconnect(self, close_code):
         self.closed = True
+        
+        # Remove from active connections
+        active_connections.discard(self)
+        
+        # Update metrics
+        set_active_connections(len(active_connections))
+        
         if self.session_id:
             session_store.set(self.session_id, {"count": self.count})
+        
         logging.info("Client disconnected", extra={
             "session_id": self.session_id,
-            "total_messages": self.count
+            "total_messages": self.count,
+            "close_code": close_code,
+            "remaining_active": len(active_connections)
         })
-        set_value("connected_users", len(active_connections) - 1)
-        #active_connections.discard(self)
-        pass

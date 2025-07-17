@@ -1,6 +1,6 @@
 upstream backend {
-    server web_blue:8000;
-    # server web_blue:8000;
+    server web_green:8000;
+    # server web_green:8000;
 }
 
 server {

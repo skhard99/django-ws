@@ -16,8 +16,17 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
-from chat.views import metrics_view
+from chat.views import metrics_view, health_check, observability_status, readiness_check
+
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path("metrics", metrics_view),
+    
+    # Observability endpoints
+    path('metrics/', metrics_view, name='metrics'),           # Prometheus metrics
+    path('health/', health_check, name='health'),             # Health check
+    path('ready/', readiness_check, name='readiness'),        # Readiness check
+    path('observability/', observability_status, name='observability'),  # Detailed status
+    
+    # Legacy endpoint (keep for backward compatibility)
+    # path('metrics', metrics_view, name='metrics_legacy'),     # Without trailing slash
 ]

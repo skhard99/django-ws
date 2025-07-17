@@ -4,22 +4,40 @@ services:
   web_blue:
     build:
       context: .
+      dockerfile: Dockerfile
     container_name: web_blue
     environment:
       - DJANGO_SETTINGS_MODULE=core.settings
+      - DEPLOYMENT_COLOR=blue
     ports:
       - "8001:8000"
     restart: unless-stopped
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   web_green:
     build:
       context: .
+      dockerfile: Dockerfile
     container_name: web_green
     environment:
       - DJANGO_SETTINGS_MODULE=core.settings
+      - DEPLOYMENT_COLOR=green
     ports:
       - "8002:8000"
     restart: unless-stopped
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   nginx:
     image: nginx:alpine
@@ -31,3 +49,68 @@ services:
     depends_on:
       - web_blue
       - web_green
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus_alerts.yml:/etc/prometheus/alerts/prometheus_alerts.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9093'
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  # Simple webhook server to receive alerts (for testing/development)
+  webhook-server:
+    image: python:3.10-slim
+    container_name: webhook_server
+    working_dir: /app
+    volumes:
+      - ./webhook_server.py:/app/webhook_server.py
+    command: >
+      sh -c "
+      pip install flask &&
+      python webhook_server.py
+      "
+    ports:
+      - "5001:5001"
+    networks:
+      - app_network
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  alertmanager_data:
+
+networks:
+  app_network:
+    driver: bridge

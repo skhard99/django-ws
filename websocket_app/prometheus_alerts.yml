@@ -1,0 +1,92 @@
+groups:
+  - name: websocket_app_alerts
+    rules:
+      # Alert if no active connections for more than 60 seconds
+      - alert: NoActiveConnections
+        expr: websocket_connections_active == 0
+        for: 60s
+        labels:
+          severity: warning
+          service: django-websocket-app
+        annotations:
+          summary: "No active WebSocket connections"
+          description: "The WebSocket application has had no active connections for more than 60 seconds on deployment {{ $labels.deployment_color }}."
+
+      # Alert if application is down (no metrics received)
+      - alert: ApplicationDown
+        expr: up{job="websocket-app"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          service: django-websocket-app
+        annotations:
+          summary: "WebSocket application is down"
+          description: "The WebSocket application on deployment {{ $labels.deployment_color }} is not responding to health checks."
+
+      # Alert if too many connections (potential DoS)
+      - alert: TooManyConnections
+        expr: websocket_connections_active > 4000
+        for: 30s
+        labels:
+          severity: warning
+          service: django-websocket-app
+        annotations:
+          summary: "High number of WebSocket connections"
+          description: "The WebSocket application has {{ $value }} active connections on deployment {{ $labels.deployment_color }}, which is approaching the 5000 limit."
+
+      # Alert if message processing is slow
+      - alert: SlowMessageProcessing
+        expr: histogram_quantile(0.95, websocket_message_processing_duration_seconds_bucket) > 1
+        for: 60s
+        labels:
+          severity: warning
+          service: django-websocket-app
+        annotations:
+          summary: "Slow WebSocket message processing"
+          description: "95th percentile message processing time is {{ $value }}s on deployment {{ $labels.deployment_color }}."
+
+      # Alert if application hasn't been restarted in a long time (potential memory leaks)
+      - alert: ApplicationLongUptime
+        expr: application_uptime_seconds > 604800  # 7 days
+        for: 5m
+        labels:
+          severity: info
+          service: django-websocket-app
+        annotations:
+          summary: "Application has been running for a long time"
+          description: "The WebSocket application on deployment {{ $labels.deployment_color }} has been running for {{ $value | humanizeDuration }}."
+
+      # Alert if heartbeat pings are failing
+      - alert: HeartbeatPingsFailing
+        expr: rate(websocket_heartbeat_pings_total[5m]) == 0
+        for: 2m
+        labels:
+          severity: warning
+          service: django-websocket-app
+        annotations:
+          summary: "Heartbeat pings not being sent"
+          description: "No heartbeat pings have been sent in the last 5 minutes on deployment {{ $labels.deployment_color }}."
+
+  - name: deployment_alerts
+    rules:
+      # Alert if both blue and green deployments are down
+      - alert: BothDeploymentsDown
+        expr: count(up{job="websocket-app"} == 1) == 0
+        for: 30s
+        labels:
+          severity: critical
+          service: django-websocket-app
+        annotations:
+          summary: "Both blue and green deployments are down"
+          description: "Both blue and green deployments of the WebSocket application are not responding."
+
+      # Alert if deployment color is unknown
+      - alert: UnknownDeploymentColor
+        expr: websocket_connections_active{deployment_color="unknown"} > 0
+        for: 60s
+        labels:
+          severity: warning
+          service: django-websocket-app
+        annotations:
+          summary: "Unknown deployment color detected"
+          description: "WebSocket connections are being handled by a deployment with unknown color."
