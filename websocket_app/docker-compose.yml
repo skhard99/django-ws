@@ -1,0 +1,33 @@
+version: '3.9'
+
+services:
+  web_blue:
+    build:
+      context: .
+    container_name: web_blue
+    environment:
+      - DJANGO_SETTINGS_MODULE=core.settings
+    ports:
+      - "8001:8000"
+    restart: unless-stopped
+
+  web_green:
+    build:
+      context: .
+    container_name: web_green
+    environment:
+      - DJANGO_SETTINGS_MODULE=core.settings
+    ports:
+      - "8002:8000"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx_proxy
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - web_blue
+      - web_green
